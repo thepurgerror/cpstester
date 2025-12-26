@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Minecraft CPS Trainer</title>
+
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0;
+  font-family:'Trebuchet MS',system-ui,sans-serif;
+  background:repeating-linear-gradient(45deg,#1f2933,#1f2933 20px,#111827 20px,#111827 40px);
+  color:#e5e7eb;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  min-height:100vh
+}
+.container{
+  background:#020617;
+  border:4px solid #16a34a;
+  border-radius:10px;
+  width:640px;
+  padding:16px;
+  box-shadow:0 0 0 4px #052e16,0 25px 60px rgba(0,0,0,.8)
+}
+h1{text-align:center;color:#4ade80;margin:6px 0}
+p{text-align:center;margin:0 0 10px;color:#a7f3d0}
+.top{display:grid;grid-template-columns:1fr auto auto auto;gap:8px;margin-bottom:10px}
+select,button{
+  background:#020617;color:#e5e7eb;
+  border:3px solid #22c55e;border-radius:6px;
+  padding:6px 10px;font-weight:700;cursor:pointer
+}
+.status{font-weight:800}
+.panels{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.panel{border:3px solid #14532d;border-radius:6px;padding:8px;text-align:center}
+.panel h2{margin:4px 0}
+.left h2{color:#4ade80}
+.right h2{color:#60a5fa}
+.click{
+  height:150px;width:100%;font-size:1.1rem;
+  font-weight:900;border-radius:6px;margin:6px 0
+}
+.left .click{background:linear-gradient(#22c55e,#16a34a);border:4px solid #14532d}
+.right .click{background:linear-gradient(#60a5fa,#2563eb);border:4px solid #1e3a8a}
+.stat span{font-size:1.3rem;font-weight:900}
+canvas{background:#020617;border:2px solid #14532d;border-radius:6px;margin-top:8px}
+.sweat{height:10px;background:#022c22;border-radius:6px;margin-top:6px;overflow:hidden}
+.sweat-fill{height:100%;width:0%;background:linear-gradient(90deg,#22c55e,#eab308,#ef4444)}
+.modal{
+  position:fixed;inset:0;
+  background:rgba(0,0,0,.85);
+  display:none;justify-content:center;align-items:center
+}
+.modal-content{
+  background:#020617;
+  border:4px solid #22c55e;
+  border-radius:8px;
+  width:380px;padding:16px;text-align:center
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+<h1>Minecraft CPS Trainer</h1>
+<p>BedWars / SkyWars Practice</p>
+
+<div class="top">
+  <select id="preset">
+    <option value="custom">Custom</option>
+    <option value="10">BedWars (10s)</option>
+    <option value="5">SkyWars (5s)</option>
+    <option value="30">Practice (30s)</option>
+  </select>
+  <select id="duration">
+    <option>5</option>
+    <option selected>10</option>
+    <option>15</option>
+    <option>30</option>
+  </select>
+  <div class="status">Status: <span id="status">Waiting</span></div>
+  <button id="soundBtn">🔇 Sound</button>
+</div>
+
+<div class="panels">
+  <div class="panel left">
+    <h2>LEFT CLICK</h2>
+    <button class="click" id="leftBtn">CLICK</button>
+    <div class="stat">Live CPS <span id="lLive">0.00</span></div>
+  </div>
+  <div class="panel right">
+    <h2>RIGHT CLICK</h2>
+    <button class="click" id="rightBtn">CLICK</button>
+    <div class="stat">Live CPS <span id="rLive">0.00</span></div>
+  </div>
+</div>
+
+<div class="sweat"><div class="sweat-fill" id="sweat"></div></div>
+<canvas id="graph" width="600" height="120"></canvas>
+</div>
+
+<!-- RESULT MODAL -->
+<div class="modal" id="modal">
+  <div class="modal-content">
+    <h2>Results</h2>
+    <p>Left CPS: <strong id="lFinal"></strong></p>
+    <p>Right CPS: <strong id="rFinal"></strong></p>
+    <p>Consistency: <strong id="cons"></strong>%</p>
+    <p>Detected: <strong id="method"></strong></p>
+    <p>Rhythm: <strong id="rhythm"></strong></p>
+    <p>Balance: <strong id="balance"></strong></p>
+    <p><strong id="combo"></strong></p>
+    <button id="shareBtn">📸 Share Card</button>
+    <button onclick="closeModal()">Close</button>
+  </div>
+</div>
+
+<audio id="clickSound" preload="auto">
+  <source src="https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg">
+</audio>
+
+<script>
+let running=false,startTime=0,endTime=0,durationSec=10;
+let l=0,r=0,cpsLog=[],clickTimes=[],soundOn=false,rafId;
+const ctx=graph.getContext("2d");
+
+preset.onchange=()=>{if(preset.value!=="custom")duration.value=preset.value};
+soundBtn.onclick=()=>{soundOn=!soundOn;soundBtn.textContent=soundOn?"🔊 Sound":"🔇 Sound"};
+
+function startTest(){
+  if(running)return;
+  running=true;
+  l=r=0;cpsLog=[];clickTimes=[];
+  durationSec=parseInt(duration.value);
+  startTime=performance.now();
+  endTime=startTime+durationSec*1000;
+  status.textContent="Running";
+  rafId=requestAnimationFrame(loop);
+}
+
+function endTest(){
+  running=false;
+  cancelAnimationFrame(rafId);
+  status.textContent="Finished";
+  const lc=(l/durationSec).toFixed(2);
+  const rc=(r/durationSec).toFixed(2);
+  lFinal.textContent=lc;
+  rFinal.textContent=rc;
+  const avg=(+lc+ +rc)/2;
+  cons.textContent=calcConsistency();
+  method.textContent=avg<6?"Normal":avg<9?"Jitter":"Butterfly";
+  rhythm.textContent=detectRhythm();
+  balance.textContent=calcBalance();
+  combo.textContent=comboScore(avg,cons.textContent);
+  modal.style.display="flex";
+}
+
+function loop(now){
+  if(!running)return;
+  if(now>=endTime){endTest();return}
+  const e=(now-startTime)/1000;
+  const lc=l/Math.max(e,.001);
+  const rc=r/Math.max(e,.001);
+  const avg=(lc+rc)/2;
+  lLive.textContent=lc.toFixed(2);
+  rLive.textContent=rc.toFixed(2);
+  cpsLog.push(avg);
+  if(cpsLog.length>300)cpsLog.shift();
+  sweat.style.width=Math.min(100,avg*8)+"%";
+  drawGraph();
+  rafId=requestAnimationFrame(loop);
+}
+
+leftBtn.onclick=()=>{
+  startTest(); if(!running)return;
+  l++; clickTimes.push(performance.now());
+  if(soundOn){clickSound.currentTime=0;clickSound.play()}
+};
+rightBtn.oncontextmenu=e=>{
+  e.preventDefault();startTest();if(!running)return;
+  r++; clickTimes.push(performance.now());
+  if(soundOn){clickSound.currentTime=0;clickSound.play()}
+};
+
+function calcConsistency(){
+  if(cpsLog.length<2)return 0;
+  const avg=cpsLog.reduce((a,b)=>a+b)/cpsLog.length;
+  const v=cpsLog.reduce((a,b)=>a+(b-avg)**2,0)/cpsLog.length;
+  return Math.max(0,Math.round(100-v*10));
+}
+function detectRhythm(){
+  if(clickTimes.length<6)return"Too Short";
+  let gaps=[];for(let i=1;i<clickTimes.length;i++)gaps.push(clickTimes[i]-clickTimes[i-1]);
+  const avg=gaps.reduce((a,b)=>a+b)/gaps.length;
+  const v=gaps.reduce((a,b)=>a+(b-avg)**2,0)/gaps.length;
+  return v<800?"Stable":"Chaotic";
+}
+function calcBalance(){
+  if(!l||!r)return"Single Side";
+  return Math.round(Math.min(l,r)/Math.max(l,r)*100)+"%";
+}
+function comboScore(c,cons){
+  cons=parseInt(cons);
+  if(c<6||cons<60)return"❌ Not Ready";
+  if(c<9)return"⚠️ Decent";
+  if(c<12||cons<85)return"✅ Combo-Ready";
+  return"🔥 God Bridge Level";
+}
+function drawGraph(){
+  ctx.clearRect(0,0,600,120);
+  ctx.beginPath();
+  cpsLog.forEach((v,i)=>{
+    const x=i*(600/cpsLog.length);
+    const y=120-v*8;
+    ctx.lineTo(x,y);
+  });
+  ctx.strokeStyle="#4ade80";ctx.stroke();
+}
+
+document.getElementById("shareBtn").onclick=()=>{
+  const c=document.createElement("canvas");
+  c.width=420;c.height=260;
+  const g=c.getContext("2d");
+  g.fillStyle="#020617";g.fillRect(0,0,420,260);
+  g.strokeStyle="#22c55e";g.lineWidth=6;g.strokeRect(3,3,414,254);
+  g.fillStyle="#4ade80";g.font="bold 22px Trebuchet MS";
+  g.fillText("Minecraft CPS Results",70,36);
+  g.fillStyle="#e5e7eb";g.font="16px Trebuchet MS";
+  g.fillText("Left CPS: "+lFinal.textContent,30,80);
+  g.fillText("Right CPS: "+rFinal.textContent,220,80);
+  g.fillText("Consistency: "+cons.textContent+"%",30,115);
+  g.fillText("Method: "+method.textContent,220,115);
+  g.fillText("Rhythm: "+rhythm.textContent,30,150);
+  g.fillText("Balance: "+balance.textContent,220,150);
+  g.fillStyle="#facc15";g.font="bold 18px Trebuchet MS";
+  g.fillText(combo.textContent,90,195);
+  const a=document.createElement("a");
+  a.download="cps-result.png";
+  a.href=c.toDataURL();a.click();
+};
+
+function closeModal(){modal.style.display="none"}
+document.addEventListener("keydown",e=>{if(e.key==="r"||e.key==="R")location.reload()});
+</script>
+</body>
+</html>
